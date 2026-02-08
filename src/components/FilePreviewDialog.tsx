@@ -21,6 +21,7 @@ import {
   Archive,
   Code,
   FileCode,
+  AlertTriangle,
 } from 'lucide-react';
 import { useFilePreview } from '@/contexts/FilePreviewContext';
 import { toast } from 'sonner';
@@ -83,7 +84,7 @@ const isAudioFile = (name: string) =>
 /* ─── Loading skeleton ─── */
 function PreviewSkeleton() {
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4 animate-fade-in">
+    <div className="flex flex-col items-center justify-center h-full gap-4">
       <div className="relative">
         <div className="w-16 h-16 rounded-2xl bg-primary/10 animate-pulse" />
         <Loader2 className="w-8 h-8 text-primary animate-spin absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
@@ -92,6 +93,78 @@ function PreviewSkeleton() {
         <p className="text-sm font-medium text-foreground">Đang tải file...</p>
         <p className="text-xs text-muted-foreground">Vui lòng chờ trong giây lát</p>
       </div>
+    </div>
+  );
+}
+
+/* ─── PDF Viewer with fallback ─── */
+function PDFViewer({ url, name }: { url: string; name: string }) {
+  const [viewerMode, setViewerMode] = useState<'native' | 'google' | 'failed'>('native');
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [loadTimeout, setLoadTimeout] = useState(false);
+
+  // Timeout fallback: if native iframe doesn't load in 8s, switch to Google viewer
+  useEffect(() => {
+    if (viewerMode !== 'native' || isLoaded) return;
+    const timer = setTimeout(() => {
+      if (!isLoaded) {
+        setLoadTimeout(true);
+        setViewerMode('google');
+      }
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [viewerMode, isLoaded]);
+
+  const googleViewerUrl = `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
+
+  if (viewerMode === 'failed') {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center p-6">
+        <AlertTriangle className="w-12 h-12 text-warning mb-3" />
+        <h3 className="text-sm font-semibold mb-1">Không thể xem PDF trực tiếp</h3>
+        <p className="text-xs text-muted-foreground mb-4 max-w-sm">
+          Trình duyệt không hỗ trợ xem PDF nhúng. Vui lòng tải về hoặc mở trong tab mới.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => window.open(url, '_blank')} className="gap-1.5 text-xs">
+            <ExternalLink className="w-3.5 h-3.5" /> Mở tab mới
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setViewerMode('google')} className="gap-1.5 text-xs">
+            Thử Google Viewer
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const iframeSrc = viewerMode === 'native'
+    ? `${url}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`
+    : googleViewerUrl;
+
+  return (
+    <div className="relative h-full">
+      {!isLoaded && (
+        <div className="absolute inset-0 z-10"><PreviewSkeleton /></div>
+      )}
+      <iframe
+        key={viewerMode} // force re-mount on mode switch
+        src={iframeSrc}
+        className={cn('w-full h-full border-0 transition-opacity duration-200', isLoaded ? 'opacity-100' : 'opacity-0')}
+        title={name}
+        allow="fullscreen"
+        onLoad={() => setIsLoaded(true)}
+        onError={() => {
+          if (viewerMode === 'native') setViewerMode('google');
+          else setViewerMode('failed');
+        }}
+      />
+      {viewerMode === 'google' && isLoaded && (
+        <div className="absolute bottom-2 right-2 z-20">
+          <Badge variant="secondary" className="text-[9px] bg-background/80 backdrop-blur-sm">
+            Google Viewer
+          </Badge>
+        </div>
+      )}
     </div>
   );
 }
@@ -219,7 +292,7 @@ export default function FilePreviewDialog() {
 
     if (!canPreview) {
       return (
-        <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-gradient-to-b from-muted/30 to-transparent animate-fade-in">
+        <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-gradient-to-b from-muted/30 to-transparent">
           <div className="p-5 rounded-2xl bg-secondary/50 mb-4 shadow-sm">
             {getFileIcon(name, 'lg')}
           </div>
@@ -249,7 +322,7 @@ export default function FilePreviewDialog() {
             alt={name}
             className={cn(
               'max-w-full max-h-full object-contain rounded shadow-md transition-opacity duration-300',
-              imageLoaded ? 'opacity-100 animate-scale-in' : 'opacity-0 absolute'
+              imageLoaded ? 'opacity-100' : 'opacity-0 absolute'
             )}
             onLoad={() => setImageLoaded(true)}
             onError={() => setImageError(true)}
@@ -259,20 +332,7 @@ export default function FilePreviewDialog() {
     }
 
     if (isPDF(name)) {
-      return (
-        <div className="relative h-full">
-          {!iframeLoaded && (
-            <div className="absolute inset-0 z-10"><PreviewSkeleton /></div>
-          )}
-          <iframe
-            src={`${url}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`}
-            className={cn('w-full h-full border-0 transition-opacity duration-300', iframeLoaded ? 'opacity-100' : 'opacity-0')}
-            title={name}
-            allow="fullscreen"
-            onLoad={() => setIframeLoaded(true)}
-          />
-        </div>
-      );
+      return <PDFViewer url={url} name={name} />;
     }
 
     if (isOfficeDoc(name)) {
@@ -283,7 +343,7 @@ export default function FilePreviewDialog() {
           )}
           <iframe
             src={getOfficeViewerUrl(url)}
-            className={cn('w-full h-full border-0 transition-opacity duration-300', iframeLoaded ? 'opacity-100' : 'opacity-0')}
+            className={cn('w-full h-full border-0 transition-opacity duration-200', iframeLoaded ? 'opacity-100' : 'opacity-0')}
             title={name}
             allow="fullscreen"
             onLoad={() => setIframeLoaded(true)}
@@ -294,7 +354,7 @@ export default function FilePreviewDialog() {
 
     if (isVideoFile(name)) {
       return (
-        <div className="flex items-center justify-center h-full p-4 bg-black/90 animate-fade-in">
+        <div className="flex items-center justify-center h-full p-4 bg-black/90">
           <video src={url} controls className="max-w-full max-h-full rounded-lg shadow-2xl">
             Trình duyệt không hỗ trợ phát video.
           </video>
@@ -304,7 +364,7 @@ export default function FilePreviewDialog() {
 
     if (isAudioFile(name)) {
       return (
-        <div className="flex flex-col items-center justify-center h-full p-6 bg-gradient-to-b from-primary/5 to-transparent animate-fade-in">
+        <div className="flex flex-col items-center justify-center h-full p-6 bg-gradient-to-b from-primary/5 to-transparent">
           <div className="p-6 rounded-full bg-primary/10 mb-4 shadow-inner">
             {getFileIcon(name, 'lg')}
           </div>
@@ -323,7 +383,7 @@ export default function FilePreviewDialog() {
           {isLoadingText ? (
             <PreviewSkeleton />
           ) : (
-            <ScrollArea className="h-full animate-fade-in">
+            <ScrollArea className="h-full">
               <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-words text-foreground leading-relaxed">
                 {textContent || 'Không thể đọc nội dung file'}
               </pre>
@@ -338,15 +398,18 @@ export default function FilePreviewDialog() {
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) closePreview(); }}>
-      <DialogContent className="max-w-[95vw] w-[1400px] h-[800px] max-h-[92vh] p-0 overflow-hidden flex flex-col gap-0 border-2 border-primary/20" aria-describedby={undefined}>
+      <DialogContent
+        className="max-w-[95vw] w-[1400px] h-[800px] max-h-[92vh] p-0 overflow-hidden flex flex-col gap-0 border-2 border-primary/20 [&>button]:z-30"
+        style={{ animationDuration: '0.2s' }}
+        aria-describedby={undefined}
+      >
         <VisuallyHidden><DialogTitle>Xem trước file</DialogTitle></VisuallyHidden>
 
         {/* ─── Header ─── */}
         <div className="gradient-primary px-4 py-3 shrink-0">
           <div className="flex items-start justify-between gap-4">
-            {/* Left: Task + File Info — clearly separated */}
+            {/* Left: Task + File Info */}
             <div className="min-w-0 flex-1 space-y-1.5">
-              {/* Task row */}
               {taskTitle && (
                 <div className="flex items-center gap-2">
                   <ClipboardList className="w-3.5 h-3.5 text-white/60 shrink-0" />
@@ -361,7 +424,6 @@ export default function FilePreviewDialog() {
                   )}
                 </div>
               )}
-              {/* File row */}
               <div className="flex items-center gap-2">
                 <div className="[&_svg]:text-white/90 shrink-0">
                   {getFileIcon(name, 'sm')}
@@ -430,7 +492,7 @@ export default function FilePreviewDialog() {
                       onClick={() => switchFile(i, true)}
                       title={file.name}
                       className={cn(
-                        'w-full flex items-start gap-2 px-2 py-2 rounded text-left transition-all text-[11px] group',
+                        'w-full flex items-start gap-2 px-2 py-2 rounded text-left transition-colors text-[11px] group',
                         i === activeIndex
                           ? 'bg-primary text-primary-foreground shadow-sm'
                           : 'hover:bg-secondary text-foreground'

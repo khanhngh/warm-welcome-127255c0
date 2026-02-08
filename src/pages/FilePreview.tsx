@@ -15,11 +15,13 @@ import {
   File,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   FileEdit,
   Eye,
-  FolderDown
+  FolderDown,
+  ExternalLink,
 } from 'lucide-react';
 import uehLogo from '@/assets/ueh-logo-new.png';
 import TaskNotes from '@/components/TaskNotes';
@@ -73,7 +75,8 @@ const isPreviewableImage = (fileName: string) => {
 };
 
 const isPDF = (fileName: string) => {
-  return fileName.toLowerCase().endsWith('.pdf');
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  return ext === 'pdf';
 };
 
 const isOfficeDoc = (fileName: string) => {
@@ -95,6 +98,78 @@ const isAudioFile = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
   return ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'wma'].includes(ext || '');
 };
+
+/* ─── PDF Viewer with fallback for full page ─── */
+function PDFViewerFullPage({ url, name }: { url: string; name: string }) {
+  const [viewerMode, setViewerMode] = useState<'native' | 'google' | 'failed'>('native');
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  useEffect(() => {
+    if (viewerMode !== 'native' || isLoaded) return;
+    const timer = setTimeout(() => {
+      if (!isLoaded) {
+        setViewerMode('google');
+      }
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [viewerMode, isLoaded]);
+
+  const googleViewerUrl = `https://docs.google.com/gview?url=${encodeURIComponent(url)}&embedded=true`;
+
+  if (viewerMode === 'failed') {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 min-h-[40vh] text-center">
+        <AlertTriangle className="w-12 h-12 text-warning mb-3" />
+        <h3 className="text-lg font-semibold mb-2">Không thể xem PDF trực tiếp</h3>
+        <p className="text-muted-foreground mb-4 max-w-sm">
+          Trình duyệt không hỗ trợ xem PDF nhúng. Vui lòng tải về hoặc mở trong tab mới.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => window.open(url, '_blank')} className="gap-2">
+            <ExternalLink className="w-4 h-4" /> Mở tab mới
+          </Button>
+          <Button variant="outline" onClick={() => { setIsLoaded(false); setViewerMode('google'); }} className="gap-2">
+            Thử Google Viewer
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const iframeSrc = viewerMode === 'native'
+    ? `${url}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`
+    : googleViewerUrl;
+
+  return (
+    <div className="w-full relative" style={{ height: 'calc(100vh - 280px)', minHeight: '400px' }}>
+      {!isLoaded && (
+        <div className="absolute inset-0 flex items-center justify-center z-10">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      )}
+      <iframe
+        key={viewerMode}
+        src={iframeSrc}
+        className={`w-full h-full border-0 transition-opacity duration-200 ${isLoaded ? 'opacity-100' : 'opacity-0'}`}
+        title={name}
+        style={{ WebkitOverflowScrolling: 'touch', overflow: 'auto' }}
+        allow="fullscreen"
+        onLoad={() => setIsLoaded(true)}
+        onError={() => {
+          if (viewerMode === 'native') setViewerMode('google');
+          else setViewerMode('failed');
+        }}
+      />
+      {viewerMode === 'google' && isLoaded && (
+        <div className="absolute bottom-2 right-2 z-20">
+          <Badge variant="secondary" className="text-xs bg-background/80 backdrop-blur-sm">
+            Google Viewer
+          </Badge>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function FilePreview() {
   // Support both semantic routes and legacy query params
@@ -682,18 +757,7 @@ export default function FilePreview() {
                         />
                       </div>
                     ) : isPDF(fileName) ? (
-                      <div className="w-full" style={{ height: 'calc(100vh - 280px)', minHeight: '400px' }}>
-                        <iframe
-                          src={`${fileUrl}#toolbar=1&navpanes=0&scrollbar=1&view=FitH`}
-                          className="w-full h-full border-0"
-                          title={fileName}
-                          style={{ 
-                            WebkitOverflowScrolling: 'touch',
-                            overflow: 'auto'
-                          }}
-                          allow="fullscreen"
-                        />
-                      </div>
+                      <PDFViewerFullPage url={fileUrl!} name={fileName} />
                     ) : isOfficeDoc(fileName) && fileUrl ? (
                       <div className="w-full" style={{ height: 'calc(100vh - 280px)', minHeight: '400px' }}>
                         <iframe
