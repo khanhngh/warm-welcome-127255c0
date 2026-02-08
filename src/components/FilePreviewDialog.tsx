@@ -81,18 +81,12 @@ const isVideoFile = (name: string) =>
 const isAudioFile = (name: string) =>
   ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'].includes(getFileExt(name));
 
-/* ─── Loading skeleton ─── */
+/* ─── Simple loading indicator ─── */
 function PreviewSkeleton() {
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4">
-      <div className="relative">
-        <div className="w-16 h-16 rounded-2xl bg-primary/10 animate-pulse" />
-        <Loader2 className="w-8 h-8 text-primary animate-spin absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-      </div>
-      <div className="text-center space-y-1">
-        <p className="text-sm font-medium text-foreground">Đang tải file...</p>
-        <p className="text-xs text-muted-foreground">Vui lòng chờ trong giây lát</p>
-      </div>
+    <div className="flex flex-col items-center justify-center h-full gap-3">
+      <Loader2 className="w-8 h-8 text-primary animate-spin" />
+      <p className="text-sm text-muted-foreground">Đang tải file...</p>
     </div>
   );
 }

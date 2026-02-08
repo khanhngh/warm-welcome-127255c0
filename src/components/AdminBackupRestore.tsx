@@ -91,13 +91,16 @@ interface BackupTaskComment {
 interface BackupResource {
   name: string;
   description: string | null;
-  file_path: string;
+  file_path: string | null;
   file_size: number;
   file_type: string | null;
   category: string | null;
   folder_name: string | null;
   uploaded_by_student_id: string;
   created_at: string;
+  resource_type?: string;
+  link_url?: string | null;
+  order_index?: number;
 }
 
 interface BackupResourceFolder {
@@ -641,7 +644,10 @@ export default function AdminBackupRestore() {
         category: res.category,
         folder_name: res.folder_id ? folderIdToName.get(res.folder_id) || null : null,
         uploaded_by_student_id: userIdToStudentId.get(res.uploaded_by) || '',
-        created_at: res.created_at
+        created_at: res.created_at,
+        resource_type: res.resource_type || 'file',
+        link_url: res.link_url || null,
+        order_index: res.order_index ?? 0,
       })) || [];
 
       // Process activity logs
@@ -1279,10 +1285,21 @@ export default function AdminBackupRestore() {
         
         for (const resource of backupData.resources) {
           const userId = studentIdToUserId.get(resource.uploaded_by_student_id) || user!.id;
-          const newPathInfo = oldToNewPath.get(`project-resources/${resource.file_path}`) || 
-                             oldToNewPath.get(resource.file_path);
+          const isLinkResource = resource.resource_type === 'link' || (!resource.file_path && resource.link_url);
           
-          if (!newPathInfo) continue;
+          let filePath: string | null = null;
+          
+          if (isLinkResource) {
+            // Link-type resources don't need file restoration
+            filePath = null;
+          } else if (resource.file_path) {
+            const newPathInfo = oldToNewPath.get(`project-resources/${resource.file_path}`) || 
+                               oldToNewPath.get(resource.file_path);
+            if (!newPathInfo) continue; // Skip file resources without restored files
+            filePath = newPathInfo.path;
+          } else {
+            continue; // Skip resources with no file and no link
+          }
 
           const folderId = resource.folder_name ? folderNameToId.get(resource.folder_name) || null : null;
 
@@ -1292,14 +1309,17 @@ export default function AdminBackupRestore() {
               group_id: newGroupId,
               name: resource.name,
               description: resource.description,
-              file_path: newPathInfo.path,
-              file_size: resource.file_size,
+              file_path: filePath,
+              file_size: resource.file_size || 0,
               file_type: resource.file_type,
               category: resource.category,
               folder_id: folderId,
               uploaded_by: userId,
               storage_name: resource.name,
-              created_at: resource.created_at
+              created_at: resource.created_at,
+              resource_type: resource.resource_type || 'file',
+              link_url: isLinkResource ? resource.link_url : null,
+              order_index: resource.order_index ?? 0,
             });
 
           resourcesRestored++;

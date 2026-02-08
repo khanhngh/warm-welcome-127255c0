@@ -14,12 +14,13 @@ import {
 import { 
   Calendar, Clock, CheckCircle, Circle, AlertCircle, 
   ChevronDown, ChevronRight, ExternalLink, Eye, File,
-  List, LayoutGrid, Layers
+  List, LayoutGrid, Layers, FileText
 } from 'lucide-react';
 import { formatDeadlineVN, parseLocalDateTime } from '@/lib/datetime';
 import type { Stage, Task, TaskAssignment } from '@/types/database';
 import ResourceLinkRenderer from '@/components/ResourceLinkRenderer';
 import { supabase } from '@/integrations/supabase/client';
+import TaskNotes from '@/components/TaskNotes';
 
 interface PublicTaskListViewProps {
   stages: Stage[];
@@ -297,6 +298,22 @@ export default function PublicTaskListView({ stages, tasks, groupId, shareToken 
                 {renderSubmissionButton(task.submission_link, task.id, task.title, task.slug || undefined)}
               </div>
             )}
+            
+            {/* Read-only notes */}
+            <div className="pt-2 border-t border-primary/10">
+              <Collapsible>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground px-2">
+                    <FileText className="w-3.5 h-3.5" />
+                    Ghi chú trao đổi
+                    <ChevronDown className="w-3 h-3" />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2">
+                  <TaskNotes taskId={task.id} compact readOnly />
+                </CollapsibleContent>
+              </Collapsible>
+            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>
@@ -363,6 +380,22 @@ export default function PublicTaskListView({ stages, tasks, groupId, shareToken 
             {renderSubmissionButton(task.submission_link, task.id, task.title, task.slug || undefined)}
           </div>
         )}
+        
+        {/* Read-only notes */}
+        <div className="pt-2 border-t">
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground px-2">
+                <FileText className="w-3.5 h-3.5" />
+                Ghi chú
+                <ChevronDown className="w-3 h-3" />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-2">
+              <TaskNotes taskId={task.id} compact readOnly />
+            </CollapsibleContent>
+          </Collapsible>
+        </div>
       </div>
     );
   };
