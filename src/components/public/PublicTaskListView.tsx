@@ -174,6 +174,7 @@ export default function PublicTaskListView({ stages, tasks, groupId, shareToken 
                   taskId={task.id}
                   taskTitle={task.title}
                   taskSlug={task.slug || undefined}
+                  groupId={groupId}
                   shareToken={shareToken}
                 />
               </div>
@@ -262,6 +263,7 @@ export default function PublicTaskListView({ stages, tasks, groupId, shareToken 
               taskId={task.id}
               taskTitle={task.title}
               taskSlug={task.slug || undefined}
+              groupId={groupId}
               shareToken={shareToken}
             />
           </div>
