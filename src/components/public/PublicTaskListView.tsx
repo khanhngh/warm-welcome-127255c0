@@ -1,25 +1,18 @@
 import { useState } from 'react';
-import { useFilePreview } from '@/contexts/FilePreviewContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { 
   Calendar, Clock, CheckCircle, Circle, AlertCircle, 
-  ChevronDown, ChevronRight, ExternalLink, Eye, File,
+  ChevronDown, ChevronRight,
   List, LayoutGrid, Layers, FileText
 } from 'lucide-react';
 import { formatDeadlineVN, parseLocalDateTime } from '@/lib/datetime';
 import type { Stage, Task, TaskAssignment } from '@/types/database';
 import ResourceLinkRenderer from '@/components/ResourceLinkRenderer';
-import { supabase } from '@/integrations/supabase/client';
+import SubmissionButton from '@/components/SubmissionButton';
 import TaskNotes from '@/components/TaskNotes';
 
 interface PublicTaskListViewProps {
@@ -113,125 +106,6 @@ export default function PublicTaskListView({ stages, tasks, groupId, shareToken 
     setExpandedStages(newExpanded);
   };
 
-  const parseSubmissionLinks = (submissionLink: string | null) => {
-    if (!submissionLink) return [];
-    try {
-      const parsed = JSON.parse(submissionLink);
-      if (Array.isArray(parsed)) {
-        return parsed.map(item => ({
-          ...item,
-          type: item.file_path ? 'file' : 'link'
-        }));
-      }
-      return [{ title: 'Bài nộp', url: submissionLink, type: 'link' }];
-    } catch {
-      return [{ title: 'Bài nộp', url: submissionLink, type: 'link' }];
-    }
-  };
-
-  const { openPreview } = useFilePreview();
-
-  const handleOpenItem = (item: any, taskId?: string, taskTitle?: string, taskSlug?: string, allItems?: any[], e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    
-    if (item.type === 'file' && item.file_path) {
-      const { data } = supabase.storage
-        .from('task-submissions')
-        .getPublicUrl(item.file_path);
-      if (data?.publicUrl) {
-        // Build sibling files from all file items
-        const siblingFiles = (allItems || [])
-          .filter((it: any) => it.type === 'file' && it.file_path)
-          .map((it: any) => {
-            const { data: fileData } = supabase.storage
-              .from('task-submissions')
-              .getPublicUrl(it.file_path);
-            return {
-              url: fileData?.publicUrl || '',
-              name: it.file_name || it.title || 'file',
-              size: it.file_size || 0,
-              filePath: it.file_path,
-            };
-          });
-        
-        const activeIndex = siblingFiles.findIndex((f: any) => f.filePath === item.file_path);
-        
-        openPreview({
-          url: data.publicUrl,
-          name: item.file_name || 'file',
-          size: item.file_size || 0,
-          filePath: item.file_path,
-          taskId,
-          taskTitle,
-          taskSlug,
-          shareToken,
-          siblingFiles: siblingFiles.length > 1 ? siblingFiles : undefined,
-          activeIndex: activeIndex >= 0 ? activeIndex : 0,
-          source: 'submission',
-        });
-      }
-    } else if (item.url) {
-      window.open(item.url, '_blank', 'noopener,noreferrer');
-    }
-  };
-
-  const renderSubmissionButton = (submissionLink: string | null, taskId?: string, taskTitle?: string, taskSlug?: string) => {
-    const items = parseSubmissionLinks(submissionLink);
-    if (items.length === 0) return null;
-
-    if (items.length === 1) {
-      const item = items[0];
-      const isFile = item.type === 'file';
-      
-      return (
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-8 text-xs gap-1.5 text-primary shrink-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleOpenItem(item, taskId, taskTitle, taskSlug, items, e);
-          }}
-        >
-          {isFile ? <Eye className="w-3.5 h-3.5" /> : <ExternalLink className="w-3.5 h-3.5" />}
-          <span className="hidden sm:inline">{isFile ? 'Xem file' : 'Xem bài'}</span>
-        </Button>
-      );
-    }
-
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs gap-1.5 text-primary shrink-0"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Xem bài</span>
-            <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">{items.length}</Badge>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="bg-popover min-w-[180px]">
-          {items.map((item: any, i: number) => {
-            const isFile = item.type === 'file';
-            return (
-              <DropdownMenuItem 
-                key={i}
-                onClick={(e) => handleOpenItem(item, taskId, taskTitle, taskSlug, items)}
-                className="text-xs cursor-pointer gap-2"
-              >
-                {isFile ? <File className="w-3.5 h-3.5" /> : <ExternalLink className="w-3.5 h-3.5" />}
-                <span className="truncate flex-1">{item.title || item.file_name || `Bài ${i + 1}`}</span>
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
-  };
-
   // Compact task item - Mobile first, minimal
   const CompactTaskItem = ({ task, taskCode }: { task: Task; taskCode: string }) => {
     const config = getStatusConfig(task.status, task.deadline);
@@ -295,7 +169,13 @@ export default function PublicTaskListView({ stages, tasks, groupId, shareToken 
             
             {task.submission_link && (
               <div className="pt-1">
-                {renderSubmissionButton(task.submission_link, task.id, task.title, task.slug || undefined)}
+                <SubmissionButton
+                  submissionLink={task.submission_link}
+                  taskId={task.id}
+                  taskTitle={task.title}
+                  taskSlug={task.slug || undefined}
+                  shareToken={shareToken}
+                />
               </div>
             )}
             
@@ -377,7 +257,13 @@ export default function PublicTaskListView({ stages, tasks, groupId, shareToken 
         {/* Action */}
         {task.submission_link && (
           <div className="pt-1 border-t">
-            {renderSubmissionButton(task.submission_link, task.id, task.title, task.slug || undefined)}
+            <SubmissionButton
+              submissionLink={task.submission_link}
+              taskId={task.id}
+              taskTitle={task.title}
+              taskSlug={task.slug || undefined}
+              shareToken={shareToken}
+            />
           </div>
         )}
         

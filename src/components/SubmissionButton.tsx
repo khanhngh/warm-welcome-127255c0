@@ -1,4 +1,3 @@
-import { useNavigate } from 'react-router-dom';
 import { useFilePreview } from '@/contexts/FilePreviewContext';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -29,44 +28,20 @@ interface SubmissionItem {
   type?: 'link' | 'file';
 }
 
-interface SubmissionButtonProps {
-  submissionLink: string | null;
-  variant?: 'default' | 'compact';
-  onStopPropagation?: boolean;
-  taskId?: string;
-  taskTitle?: string;
-  groupId?: string;
-}
-
 const getFileIcon = (fileName: string) => {
   const ext = fileName.split('.').pop()?.toLowerCase();
   switch (ext) {
-    case 'pdf':
-      return <FileText className="w-3 h-3 text-red-500" />;
-    case 'doc':
-    case 'docx':
-      return <FileText className="w-3 h-3 text-blue-500" />;
-    case 'xls':
-    case 'xlsx':
-    case 'csv':
-      return <FileSpreadsheet className="w-3 h-3 text-green-500" />;
-    case 'ppt':
-    case 'pptx':
-      return <Presentation className="w-3 h-3 text-orange-500" />;
-    case 'jpg':
-    case 'jpeg':
-    case 'png':
-    case 'gif':
-    case 'webp':
-      return <ImageIcon className="w-3 h-3 text-purple-500" />;
-    default:
-      return <File className="w-3 h-3 text-muted-foreground" />;
+    case 'pdf': return <FileText className="w-3 h-3 text-red-500" />;
+    case 'doc': case 'docx': return <FileText className="w-3 h-3 text-blue-500" />;
+    case 'xls': case 'xlsx': case 'csv': return <FileSpreadsheet className="w-3 h-3 text-green-500" />;
+    case 'ppt': case 'pptx': return <Presentation className="w-3 h-3 text-orange-500" />;
+    case 'jpg': case 'jpeg': case 'png': case 'gif': case 'webp': return <ImageIcon className="w-3 h-3 text-purple-500" />;
+    default: return <File className="w-3 h-3 text-muted-foreground" />;
   }
 };
 
 export function parseSubmissionLinks(submissionLink: string | null): SubmissionItem[] {
   if (!submissionLink) return [];
-  
   try {
     const parsed = JSON.parse(submissionLink);
     if (Array.isArray(parsed)) {
@@ -81,16 +56,30 @@ export function parseSubmissionLinks(submissionLink: string | null): SubmissionI
   }
 }
 
+interface SubmissionButtonProps {
+  submissionLink: string | null;
+  variant?: 'default' | 'compact';
+  onStopPropagation?: boolean;
+  taskId?: string;
+  taskTitle?: string;
+  groupId?: string;
+  shareToken?: string;
+  taskSlug?: string;
+}
+
 export default function SubmissionButton({ 
   submissionLink, 
   variant = 'default',
   onStopPropagation = true,
   taskId,
   taskTitle,
-  groupId
+  groupId,
+  shareToken,
+  taskSlug,
 }: SubmissionButtonProps) {
-  const navigate = useNavigate();
-  
+  // Hooks must be called before any conditional returns
+  const { openPreview } = useFilePreview();
+
   if (!submissionLink) {
     return variant === 'compact' ? (
       <span className="inline-flex h-7 w-[104px] items-center justify-center text-[10px] text-muted-foreground whitespace-nowrap">—</span>
@@ -104,8 +93,6 @@ export default function SubmissionButton({
       <span className="inline-flex h-7 w-[104px] items-center justify-center text-[10px] text-muted-foreground whitespace-nowrap">—</span>
     ) : null;
   }
-
-  const { openPreview } = useFilePreview();
 
   // Build sibling files list for the popup sidebar
   const fileItems = items.filter(i => i.type === 'file' && i.file_path);
@@ -140,7 +127,9 @@ export default function SubmissionButton({
           filePath: item.file_path,
           taskId,
           taskTitle,
+          taskSlug,
           groupSlug: groupId,
+          shareToken,
           siblingFiles: siblings.length > 1 ? siblings : undefined,
           activeIndex: siblings.length > 1 ? activeIdx : undefined,
           source: 'submission',
