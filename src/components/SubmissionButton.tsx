@@ -140,10 +140,40 @@ export default function SubmissionButton({
     }
   };
 
-  if (items.length === 1) {
-    const item = items[0];
-    const isFile = item.type === 'file';
+  // For single item OR all-files submissions: open preview directly with all siblings
+  const allFiles = items.every(i => i.type === 'file');
+  
+  if (items.length === 1 || allFiles) {
+    const firstFileItem = items.find(i => i.type === 'file') || items[0];
+    const isFile = firstFileItem.type === 'file';
     
+    const handleDirectOpen = (e?: React.MouseEvent) => {
+      if (onStopPropagation && e) e.stopPropagation();
+      
+      if (isFile && allFiles && fileItems.length > 1) {
+        // Open preview with first file selected and ALL siblings in sidebar
+        const siblings = buildSiblingFiles();
+        if (siblings.length > 0) {
+          openPreview({
+            url: siblings[0].url,
+            name: siblings[0].name,
+            size: siblings[0].size,
+            filePath: siblings[0].filePath,
+            taskId,
+            taskTitle,
+            taskSlug,
+            groupSlug: groupId,
+            shareToken,
+            siblingFiles: siblings,
+            activeIndex: 0,
+            source: 'submission',
+          });
+          return;
+        }
+      }
+      handleOpenItem(firstFileItem, e);
+    };
+
     return (
       <Button
         variant="outline"
@@ -151,12 +181,14 @@ export default function SubmissionButton({
         className={`h-7 text-xs px-2 gap-1 text-primary whitespace-nowrap ${
           variant === 'compact' ? 'w-[104px] justify-center' : ''
         }`}
-        onClick={(e) => handleOpenItem(item, e)}
+        onClick={handleDirectOpen}
       >
         {isFile ? (
           <>
             <Eye className="w-3 h-3" />
-            {variant === 'compact' ? 'File' : 'Xem file'}
+            {variant === 'compact' 
+              ? (fileItems.length > 1 ? `${fileItems.length} file` : 'File')
+              : (fileItems.length > 1 ? `Xem ${fileItems.length} file` : 'Xem file')}
           </>
         ) : (
           <>
@@ -168,16 +200,14 @@ export default function SubmissionButton({
     );
   }
 
-  // Multiple items
-  const hasFiles = items.some(i => i.type === 'file');
-  const hasLinks = items.some(i => i.type === 'link');
+  // Multiple items with mixed types (files + links): show dropdown
   const filesCount = items.filter(i => i.type === 'file').length;
   const linksCount = items.filter(i => i.type === 'link').length;
   
   let label = `Xem (${items.length})`;
-  if (hasFiles && hasLinks) {
+  if (filesCount > 0 && linksCount > 0) {
     label = `${filesCount}F+${linksCount}L`;
-  } else if (hasFiles) {
+  } else if (filesCount > 0) {
     label = `${filesCount} file`;
   } else {
     label = `${linksCount} link`;
