@@ -31,7 +31,9 @@ import {
   Edit3,
   Check,
   CloudOff,
-  Cloud
+  Cloud,
+  Lock,
+  Unlock
 } from 'lucide-react';
 
 interface TaskNote {
@@ -41,6 +43,7 @@ interface TaskNote {
   content: string;
   created_at: string;
   updated_at: string;
+  is_locked: boolean;
 }
 
 interface NoteAttachment {
@@ -58,6 +61,7 @@ interface TaskNotesProps {
   className?: string;
   compact?: boolean;
   readOnly?: boolean;
+  isPublicAccess?: boolean; // true when accessed via share link
 }
 
 const formatFileSize = (bytes: number) => {
@@ -67,8 +71,9 @@ const formatFileSize = (bytes: number) => {
 };
 
 const MAX_TOTAL_SIZE = 10 * 1024 * 1024; // 10MB per task
+const MAX_NOTES_PER_TASK = 10;
 
-export default function TaskNotes({ taskId, className = '', compact = false, readOnly = false }: TaskNotesProps) {
+export default function TaskNotes({ taskId, className = '', compact = false, readOnly = false, isPublicAccess = false }: TaskNotesProps) {
   const { toast } = useToast();
   const [notes, setNotes] = useState<TaskNote[]>([]);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
@@ -81,11 +86,36 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
   const [noteToDelete, setNoteToDelete] = useState<string | null>(null);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   
-  // Track if component is mounted to prevent state updates after unmount
   const isMountedRef = useRef(true);
 
   const selectedNote = notes.find(n => n.id === selectedNoteId);
+
+  // Check if current note is editable
+  const isNoteEditable = useCallback((note: TaskNote | undefined) => {
+    if (!note) return false;
+    if (readOnly) return false;
+    // Authenticated users can edit all notes (including locked)
+    if (isAuthenticated) return true;
+    // Public users can only edit unlocked notes
+    if (isPublicAccess && !note.is_locked) return true;
+    return false;
+  }, [readOnly, isAuthenticated, isPublicAccess]);
+
+  const canCreateNote = !readOnly && notes.length < MAX_NOTES_PER_TASK;
+  const canLockUnlock = isAuthenticated && !readOnly;
+
+  // Check auth state
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data } = await supabase.auth.getUser();
+      if (isMountedRef.current) {
+        setIsAuthenticated(!!data?.user);
+      }
+    };
+    checkAuth();
+  }, []);
 
   // Autosave handler
   const handleAutosave = useCallback(async (dataToSave: string) => {
@@ -98,7 +128,6 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
 
     if (error) throw error;
 
-    // Update local state without refetching
     if (isMountedRef.current) {
       setNotes(prev => prev.map(n => 
         n.id === selectedNoteId 
@@ -108,7 +137,8 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
     }
   }, [selectedNoteId]);
 
-  // Use autosave hook
+  const currentNoteEditable = isNoteEditable(selectedNote);
+
   const { 
     isSaving, 
     lastSaved, 
@@ -118,7 +148,7 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
     data: content,
     onSave: handleAutosave,
     delay: 1500,
-    enabled: !!selectedNoteId && !readOnly
+    enabled: !!selectedNoteId && currentNoteEditable
   });
 
   // Cleanup on unmount
@@ -142,10 +172,12 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
       if (error) throw error;
       if (!isMountedRef.current) return;
 
-      const typedNotes = (notesData || []) as TaskNote[];
+      const typedNotes = (notesData || []).map((n: any) => ({
+        ...n,
+        is_locked: n.is_locked ?? false,
+      })) as TaskNote[];
       setNotes(typedNotes);
 
-      // Select first note if none selected
       if (typedNotes.length > 0 && !selectedNoteId) {
         setSelectedNoteId(typedNotes[0].id);
         setContent(typedNotes[0].content || '');
@@ -158,7 +190,7 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
         setIsLoading(false);
       }
     }
-  }, [taskId]); // Remove selectedNoteId from dependencies to prevent loops
+  }, [taskId]);
 
   const fetchAttachments = useCallback(async () => {
     if (!selectedNoteId || !isMountedRef.current) {
@@ -204,14 +236,12 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
     } catch (error) {
       console.error('Error fetching all attachments:', error);
     }
-  }, [notes.length]); // Only depend on notes.length to avoid loops
+  }, [notes.length]);
 
-  // Initial fetch
   useEffect(() => {
     fetchNotes();
-  }, [taskId]); // Only refetch when taskId changes
+  }, [taskId]);
 
-  // Fetch attachments when selectedNoteId changes
   useEffect(() => {
     if (selectedNoteId) {
       const note = notes.find(n => n.id === selectedNoteId);
@@ -221,14 +251,13 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
       }
       fetchAttachments();
     }
-  }, [selectedNoteId]); // Minimal dependencies
+  }, [selectedNoteId]);
 
-  // Fetch all attachments when notes change
   useEffect(() => {
     if (notes.length > 0) {
       fetchAllAttachments();
     }
-  }, [notes.length]); // Only when notes count changes
+  }, [notes.length]);
 
   const getTotalAttachmentSize = () => {
     return allAttachments.reduce((sum, a) => sum + a.file_size, 0);
@@ -237,14 +266,14 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
   const createNewVersion = async () => {
     if (!taskId) return;
     
+    if (notes.length >= MAX_NOTES_PER_TASK) {
+      toast({ title: 'Giới hạn', description: `Mỗi task tối đa ${MAX_NOTES_PER_TASK} ghi chú`, variant: 'destructive' });
+      return;
+    }
+    
     try {
       const { data: userData } = await supabase.auth.getUser();
-      const userId = userData?.user?.id;
-      
-      if (!userId) {
-        toast({ title: 'Lỗi', description: 'Bạn cần đăng nhập để tạo ghi chú', variant: 'destructive' });
-        return;
-      }
+      const userId = userData?.user?.id || null;
       
       const versionNumber = notes.length + 1;
       const { data, error } = await supabase
@@ -260,7 +289,7 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
 
       if (error) throw error;
 
-      const newNote = data as TaskNote;
+      const newNote = { ...data, is_locked: false } as TaskNote;
       setNotes(prev => [...prev, newNote]);
       setSelectedNoteId(newNote.id);
       setContent('');
@@ -272,11 +301,29 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
     }
   };
 
+  const toggleLock = async (noteId: string, currentLocked: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('task_notes')
+        .update({ is_locked: !currentLocked })
+        .eq('id', noteId);
+
+      if (error) throw error;
+
+      setNotes(prev => prev.map(n => 
+        n.id === noteId ? { ...n, is_locked: !currentLocked } : n
+      ));
+      
+      toast({ title: !currentLocked ? 'Đã khóa ghi chú' : 'Đã mở khóa ghi chú' });
+    } catch (error: any) {
+      toast({ title: 'Lỗi', description: error.message, variant: 'destructive' });
+    }
+  };
+
   const handleDeleteVersion = async () => {
     if (!noteToDelete) return;
 
     try {
-      // Delete attachments from storage first
       const attachmentsToDelete = allAttachments.filter(a => a.note_id === noteToDelete);
       for (const attachment of attachmentsToDelete) {
         await supabase.storage
@@ -431,7 +478,6 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
     }
   };
 
-  // Autosave status indicator
   const renderAutosaveStatus = () => {
     if (isSaving) {
       return (
@@ -481,9 +527,12 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
           </div>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">
+              {notes.length}/{MAX_NOTES_PER_TASK}
+            </Badge>
+            <Badge variant="outline" className="text-xs">
               {formatFileSize(getTotalAttachmentSize())} / 10MB
             </Badge>
-            {!readOnly && (
+            {canCreateNote && (
               <Button size="sm" variant="outline" onClick={createNewVersion}>
                 <Plus className="w-4 h-4 mr-1" />
                 Tạo phiên bản
@@ -493,6 +542,9 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
         </div>
         <p className="text-xs text-muted-foreground mt-1">
           Ghi chú dùng để trao đổi với giảng viên. Nội dung được lưu tự động.
+          {isPublicAccess && !isAuthenticated && (
+            <span className="text-warning ml-1">• Ghi chú bị khóa chỉ có thể chỉnh sửa khi đăng nhập.</span>
+          )}
         </p>
       </CardHeader>
 
@@ -501,10 +553,12 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
           <div className="flex-1 flex flex-col items-center justify-center text-center p-6 bg-muted/30 rounded-lg">
             <FileText className="w-12 h-12 text-muted-foreground/50 mb-3" />
             <p className="text-muted-foreground mb-3">Chưa có ghi chú nào</p>
-            <Button variant="outline" onClick={createNewVersion}>
-              <Plus className="w-4 h-4 mr-1" />
-              Tạo phiên bản đầu tiên
-            </Button>
+            {canCreateNote && (
+              <Button variant="outline" onClick={createNewVersion}>
+                <Plus className="w-4 h-4 mr-1" />
+                Tạo phiên bản đầu tiên
+              </Button>
+            )}
           </div>
         ) : (
           <>
@@ -518,6 +572,7 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
                   {notes.map(note => {
                     const isSelected = note.id === selectedNoteId;
                     const noteAttachmentCount = allAttachments.filter(a => a.note_id === note.id).length;
+                    const editable = isNoteEditable(note);
                     return (
                       <div
                         key={note.id}
@@ -529,10 +584,19 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <FileText className={`w-4 h-4 shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                          {note.is_locked ? (
+                            <Lock className="w-4 h-4 shrink-0 text-destructive" />
+                          ) : (
+                            <FileText className={`w-4 h-4 shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                          )}
                           <span className={`text-sm truncate ${isSelected ? 'font-medium' : ''}`}>
                             {note.version_name}
                           </span>
+                          {note.is_locked && (
+                            <Badge variant="destructive" className="text-[9px] px-1 py-0 shrink-0">
+                              Khóa
+                            </Badge>
+                          )}
                           {noteAttachmentCount > 0 && (
                             <Badge variant="outline" className="text-[10px] px-1 py-0 shrink-0">
                               <Paperclip className="w-2.5 h-2.5 mr-0.5" />
@@ -541,7 +605,26 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
                           )}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
-                          {!readOnly && (
+                          {/* Lock/Unlock button - only for authenticated users */}
+                          {canLockUnlock && (
+                            <Button 
+                              size="icon" 
+                              variant="ghost" 
+                              className="h-6 w-6"
+                              title={note.is_locked ? 'Mở khóa ghi chú' : 'Khóa ghi chú'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleLock(note.id, note.is_locked);
+                              }}
+                            >
+                              {note.is_locked ? (
+                                <Unlock className="w-3 h-3 text-destructive" />
+                              ) : (
+                                <Lock className="w-3 h-3 text-muted-foreground" />
+                              )}
+                            </Button>
+                          )}
+                          {editable && (
                             <>
                               <Button 
                                 size="icon" 
@@ -584,8 +667,10 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
                 {/* Version Name + Status */}
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <span className="text-sm font-medium shrink-0">{readOnly ? 'Xem:' : 'Đang chỉnh sửa:'}</span>
-                    {!readOnly && isEditingName ? (
+                    <span className="text-sm font-medium shrink-0">
+                      {currentNoteEditable ? 'Đang chỉnh sửa:' : 'Xem:'}
+                    </span>
+                    {currentNoteEditable && isEditingName ? (
                       <div className="flex items-center gap-1 flex-1">
                         <Input
                           value={editingName}
@@ -607,7 +692,13 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
                     ) : (
                       <div className="flex items-center gap-1">
                         <Badge variant="secondary" className="text-sm">{selectedNote.version_name}</Badge>
-                        {!readOnly && (
+                        {selectedNote.is_locked && (
+                          <Badge variant="destructive" className="text-xs gap-1">
+                            <Lock className="w-3 h-3" />
+                            Khóa
+                          </Badge>
+                        )}
+                        {currentNoteEditable && (
                           <Button 
                             size="icon" 
                             variant="ghost"
@@ -623,11 +714,11 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
                       </div>
                     )}
                   </div>
-                  {!readOnly && renderAutosaveStatus()}
+                  {currentNoteEditable && renderAutosaveStatus()}
                 </div>
 
                 {/* Content Area */}
-                {readOnly ? (
+                {!currentNoteEditable ? (
                   <ScrollArea className="flex-1 min-h-[120px] rounded-md border bg-muted/30 p-3">
                     <pre className="text-sm whitespace-pre-wrap break-words font-sans text-foreground">
                       {content || <span className="text-muted-foreground italic">Không có nội dung</span>}
@@ -649,7 +740,7 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
                       <Paperclip className="w-4 h-4" />
                       File đính kèm
                     </span>
-                    {!readOnly && (
+                    {currentNoteEditable && (
                       <label className="cursor-pointer">
                         <input
                           type="file"
@@ -695,7 +786,7 @@ export default function TaskNotes({ taskId, className = '', compact = false, rea
                               >
                                 <Download className="w-4 h-4" />
                               </Button>
-                              {!readOnly && (
+                              {currentNoteEditable && (
                                 <Button 
                                   size="icon" 
                                   variant="ghost" 
